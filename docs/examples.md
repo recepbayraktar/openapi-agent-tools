@@ -80,3 +80,30 @@ const writeTools = toolDescriptors.filter((descriptor) =>
 
 const getUser = toolDescriptorMap.get_user_by_id;
 ```
+
+## Vercel AI SDK Integration
+
+```ts
+{
+  name: "@recepbayraktar/openapi-agent-tools",
+  providers: {
+    vercelAiSdk: {
+      enabled: true,
+    },
+  },
+}
+```
+
+```ts
+import { tools as generatedTools } from "./generated/tool-descriptors.gen";
+
+export const tools = {
+  ...generatedTools,
+  get_user_by_id: {
+    ...generatedTools.get_user_by_id,
+    execute: async (input) => api.getUserById(input),
+  },
+};
+```
+
+Generated tools expose both `inputSchema` and `parameters` so you can match your AI SDK version.

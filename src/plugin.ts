@@ -15,10 +15,12 @@ const METADATA_FIELDS: MetadataField[] = [
 ];
 
 const HTTP_METHODS: HttpMethod[] = ["get", "post", "put", "patch", "delete"];
-const ROOT_CONFIG_KEYS = ["output", "operations", "metadata"] as const;
+const ROOT_CONFIG_KEYS = ["output", "operations", "metadata", "providers"] as const;
 const OUTPUT_CONFIG_KEYS = ["file"] as const;
 const OPERATIONS_CONFIG_KEYS = ["includeIds", "excludeIds", "tags", "methods"] as const;
 const METADATA_CONFIG_KEYS = ["enabled", "include", "transform"] as const;
+const PROVIDERS_CONFIG_KEYS = ["vercelAiSdk"] as const;
+const VERCEL_AI_SDK_CONFIG_KEYS = ["enabled"] as const;
 const DEFAULT_OUTPUT_FILE = "tool-descriptors";
 
 interface PluginFile {
@@ -40,6 +42,7 @@ interface PluginConfigInput {
   output?: unknown;
   operations?: unknown;
   metadata?: unknown;
+  providers?: unknown;
   [key: string]: unknown;
 }
 
@@ -339,6 +342,26 @@ function resolveConfig(plugin: Plugin): PluginResolvedConfig {
     OPERATIONS_CONFIG_KEYS
   );
   const metadataConfig = readSection(config, "metadata", "config.metadata", METADATA_CONFIG_KEYS);
+  const providersConfig = readSection(
+    config,
+    "providers",
+    "config.providers",
+    PROVIDERS_CONFIG_KEYS
+  );
+  const vercelAiSdkConfigValue = providersConfig["vercelAiSdk"];
+
+  if (vercelAiSdkConfigValue !== undefined && !isObject(vercelAiSdkConfigValue)) {
+    throw new OpenApiAgentToolsDiagnosticError({
+      code: "E_CONFIG_INVALID_TYPE",
+      message: "Expected an object section.",
+      path: "config.providers.vercelAiSdk",
+      expected: "object",
+      received: vercelAiSdkConfigValue,
+    });
+  }
+
+  const vercelAiSdkConfig = (vercelAiSdkConfigValue ?? {}) as Record<string, unknown>;
+  assertKnownKeys(vercelAiSdkConfig, "config.providers.vercelAiSdk", VERCEL_AI_SDK_CONFIG_KEYS);
 
   return {
     name: PLUGIN_NAME,
@@ -355,6 +378,15 @@ function resolveConfig(plugin: Plugin): PluginResolvedConfig {
       enabled: readBoolean(metadataConfig["enabled"], "config.metadata.enabled", false),
       include: readMetadataFields(metadataConfig["include"]),
       transform: readMetadataTransform(metadataConfig["transform"]),
+    },
+    providers: {
+      vercelAiSdk: {
+        enabled: readBoolean(
+          vercelAiSdkConfig["enabled"],
+          "config.providers.vercelAiSdk.enabled",
+          false
+        ),
+      },
     },
   };
 }

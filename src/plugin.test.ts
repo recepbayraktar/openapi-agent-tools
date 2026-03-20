@@ -127,6 +127,11 @@ const defaultConfig: PluginResolvedConfig = {
     include: undefined,
     transform: undefined,
   },
+  providers: {
+    vercelAiSdk: {
+      enabled: false,
+    },
+  },
 };
 
 function readFixtureSpec(name: string): Record<string, unknown> {
@@ -354,6 +359,7 @@ test("generateToolDescriptorsCode creates descriptor-only output", () => {
 
   assert.ok(!code.includes('import { tool } from "ai"'));
   assert.ok(!code.includes("execute: async"));
+  assert.ok(!code.includes("createVercelAiTools"));
   assert.ok(!code.includes("console.log"));
   assert.ok(!code.includes("IMPORTANT: All filter parameters"));
 });
@@ -403,6 +409,27 @@ test("generateToolDescriptorsCode allows metadata transforms to override derived
 
   assert.ok(code.includes('"intentType": "read"'));
   assert.ok(code.includes('"routingDescription": "route:getUserById"'));
+});
+
+test("generateToolDescriptorsCode emits direct Vercel AI SDK tools when provider integration is enabled", () => {
+  const config: PluginResolvedConfig = {
+    ...defaultConfig,
+    providers: {
+      vercelAiSdk: {
+        enabled: true,
+      },
+    },
+  };
+
+  const operations = extractOperations(sampleSpec, config);
+  const code = generateToolDescriptorsCode(operations, config);
+
+  assert.ok(code.includes("export interface VercelAiToolDefinition"));
+  assert.ok(code.includes("export const tools: VercelAiToolMap = {"));
+  assert.ok(!code.includes("createVercelAiTools"));
+  assert.ok(code.includes("Missing execute implementation for tool"));
+  assert.ok(code.includes("inputSchema: toolDescriptorMap"));
+  assert.ok(code.includes("parameters: toolDescriptorMap"));
 });
 
 test("plugin config exposes plugin identity and default output", () => {
@@ -632,6 +659,79 @@ test("plugin handler rejects unknown config keys", () => {
       },
     });
   }, /E_CONFIG_UNKNOWN_KEY/);
+});
+
+test("plugin handler rejects unknown provider config keys", () => {
+  assert.throws(() => {
+    (pluginConfig.handler as (args: unknown) => void)({
+      plugin: {
+        name: pluginConfig.name,
+        output: "ignored",
+        config: {
+          providers: {
+            customProvider: {
+              enabled: true,
+            },
+          },
+        },
+        createFile: () => ({
+          add: () => {},
+        }),
+        forEach: () => {},
+        context: {
+          spec: sampleSpec,
+        },
+      },
+    });
+  }, /E_CONFIG_UNKNOWN_KEY/);
+});
+
+test("plugin handler rejects providers.vercelAiSdk when not an object", () => {
+  assert.throws(() => {
+    (pluginConfig.handler as (args: unknown) => void)({
+      plugin: {
+        name: pluginConfig.name,
+        output: "ignored",
+        config: {
+          providers: {
+            vercelAiSdk: true,
+          },
+        },
+        createFile: () => ({
+          add: () => {},
+        }),
+        forEach: () => {},
+        context: {
+          spec: sampleSpec,
+        },
+      },
+    });
+  }, /E_CONFIG_INVALID_TYPE/);
+});
+
+test("plugin handler rejects providers.vercelAiSdk.enabled when not boolean", () => {
+  assert.throws(() => {
+    (pluginConfig.handler as (args: unknown) => void)({
+      plugin: {
+        name: pluginConfig.name,
+        output: "ignored",
+        config: {
+          providers: {
+            vercelAiSdk: {
+              enabled: "yes",
+            },
+          },
+        },
+        createFile: () => ({
+          add: () => {},
+        }),
+        forEach: () => {},
+        context: {
+          spec: sampleSpec,
+        },
+      },
+    });
+  }, /E_CONFIG_INVALID_TYPE/);
 });
 
 test("plugin handler rejects output.file when empty", () => {

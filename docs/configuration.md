@@ -32,6 +32,11 @@ The plugin accepts one config object inside `openapi-ts.config.ts`.
       routingDescription: `route:${operation.operationId}`,
     }),
   },
+  providers: {
+    vercelAiSdk: {
+      enabled: true,
+    },
+  },
 }
 ```
 
@@ -84,6 +89,12 @@ The plugin accepts one config object inside `openapi-ts.config.ts`.
 - Type: `(metadata, operation) => ToolDescriptorMetadata | undefined`
 - Default: `undefined`
 - Description: Overrides or enriches derived metadata after built-in heuristics.
+
+### `providers.vercelAiSdk.enabled`
+
+- Type: `boolean`
+- Default: `false`
+- Description: Emits direct `tools` exports for Vercel AI SDK integration.
 
 ## Validation Rules
 

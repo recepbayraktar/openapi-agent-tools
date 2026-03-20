@@ -10,6 +10,7 @@ tool-descriptors.gen.ts
 
 - `toolDescriptors: ToolDescriptor[]`
 - `toolDescriptorMap: Record<string, ToolDescriptor>`
+- optional provider-specific exports when enabled (for example `tools` for Vercel AI SDK)
 
 ## `ToolDescriptor` Fields
 
@@ -24,8 +25,10 @@ Each descriptor includes:
 
 ## Runtime Expectations
 
-- This package does not generate runtime wrappers.
-- This package does not add `ai` imports.
+- By default this package does not generate runtime wrappers.
+- Provider exports are generated only when explicitly enabled in config.
+- Generated provider exports do not add runtime package imports; you provide execution bindings.
+- Vercel tool definitions include both `inputSchema` and `parameters` for SDK-version compatibility.
 - You own runtime execution and transport mapping.
 
 ## Request Body Handling

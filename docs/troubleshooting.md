@@ -32,7 +32,7 @@ An unsupported key exists in plugin config.
 
 Fix:
 
-- Use only: `output`, `operations`, `metadata` at root level
+- Use only: `output`, `operations`, `metadata`, `providers` at root level
 
 ## `E_CONFIG_INVALID_TYPE`
 

@@ -44,6 +44,41 @@ src/generated/tool-descriptors.gen.ts
 - `toolDescriptors: ToolDescriptor[]`
 - `toolDescriptorMap: Record<string, ToolDescriptor>`
 
+## Provider Integrations
+
+Descriptor output stays provider-agnostic by default.
+
+If you enable a provider integration, the generated file also includes provider-specific exports.
+
+### Vercel AI SDK
+
+```ts
+{
+  name: "@recepbayraktar/openapi-agent-tools",
+  providers: {
+    vercelAiSdk: {
+      enabled: true,
+    },
+  },
+}
+```
+
+When enabled, generated output adds a direct `tools` export compatible with AI SDK tool maps.
+
+```ts
+import { tools as generatedTools } from "./generated/tool-descriptors.gen";
+
+export const tools = {
+  ...generatedTools,
+  get_user_by_id: {
+    ...generatedTools.get_user_by_id,
+    execute: async (input) => api.getUserById(input),
+  },
+};
+```
+
+Generated tools expose both `inputSchema` and `parameters` for AI SDK version compatibility.
+
 ## Notes
 
 - Every operation should define `operationId`.

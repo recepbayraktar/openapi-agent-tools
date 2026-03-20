@@ -107,6 +107,11 @@ export interface PluginUserConfig {
     include?: MetadataField[];
     transform?: MetadataTransform;
   };
+  providers?: {
+    vercelAiSdk?: {
+      enabled?: boolean;
+    };
+  };
 }
 
 export interface PluginResolvedConfig {
@@ -124,5 +129,10 @@ export interface PluginResolvedConfig {
     enabled: boolean;
     include: MetadataField[] | undefined;
     transform: MetadataTransform | undefined;
+  };
+  providers: {
+    vercelAiSdk: {
+      enabled: boolean;
+    };
   };
 }

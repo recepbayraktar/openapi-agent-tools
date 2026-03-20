@@ -1,0 +1,15 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/users/by-id": {
+      "get": {
+        "operationId": "getUserById"
+      }
+    },
+    "/users/by_id": {
+      "get": {
+        "operationId": "get_user_by_id"
+      }
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "name": "@recepbayraktar/openapi-agent-tools",
+  "version": "0.1.0",
+  "description": "Hey API plugin that generates framework-agnostic tool descriptors from OpenAPI specs",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/recepbayraktar/openapi-chat-tools.git"
+  },
+  "homepage": "https://github.com/recepbayraktar/openapi-chat-tools#readme",
+  "bugs": {
+    "url": "https://github.com/recepbayraktar/openapi-chat-tools/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "node --import tsx --test src/*.test.ts",
+    "test:smoke": "node test/smoke/package-consumer.mjs",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build",
+    "pack:check": "pnpm pack --pack-destination ./artifacts"
+  },
+  "keywords": [
+    "openapi",
+    "hey-api",
+    "tool-descriptors",
+    "agent-tools",
+    "codegen",
+    "typescript",
+    "plugin",
+    "json-schema"
+  ],
+  "author": "Recep Bayraktar",
+  "license": "MIT",
+  "peerDependencies": {
+    "@hey-api/openapi-ts": ">=0.80.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@hey-api/openapi-ts": "^0.80.0",
+    "@types/node": "^22.0.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.3"
+  }
+}

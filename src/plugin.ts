@@ -1,10 +1,10 @@
-import { OpenApiAgentToolsDiagnosticError, PLUGIN_NAME } from "./errors.js";
-import { extractOperations, generateToolDescriptorsCode } from "./generator.js";
+import { PluginError, PLUGIN_NAME } from "./errors.js";
+import { parseOperations, generateDescriptors } from "./generator.js";
 import type {
   HttpMethod,
   MetadataField,
-  MetadataTransform,
-  PluginResolvedConfig,
+  MetadataTransformer,
+  ResolvedConfig,
 } from "./types.js";
 
 const METADATA_FIELDS: MetadataField[] = [
@@ -15,12 +15,12 @@ const METADATA_FIELDS: MetadataField[] = [
 ];
 
 const HTTP_METHODS: HttpMethod[] = ["get", "post", "put", "patch", "delete"];
-const ROOT_CONFIG_KEYS = ["output", "operations", "metadata", "providers"] as const;
-const OUTPUT_CONFIG_KEYS = ["file"] as const;
-const OPERATIONS_CONFIG_KEYS = ["includeIds", "excludeIds", "tags", "methods"] as const;
-const METADATA_CONFIG_KEYS = ["enabled", "include", "transform"] as const;
-const PROVIDERS_CONFIG_KEYS = ["vercelAiSdk"] as const;
-const VERCEL_AI_SDK_CONFIG_KEYS = ["enabled"] as const;
+const ROOT_KEYS = ["output", "operations", "metadata", "providers"] as const;
+const OUTPUT_KEYS = ["file"] as const;
+const OPERATIONS_KEYS = ["includeIds", "excludeIds", "tags", "methods"] as const;
+const METADATA_KEYS = ["enabled", "include", "transform"] as const;
+const PROVIDERS_KEYS = ["vercelAiSdk"] as const;
+const VERCEL_SDK_KEYS = ["enabled"] as const;
 const DEFAULT_OUTPUT_FILE = "tool-descriptors";
 
 interface PluginFile {
@@ -65,7 +65,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function countOperationsMissingOperationId(spec: OpenAPISpecLike): number {
+function countMissingOperationIds(spec: OpenAPISpecLike): number {
   let count = 0;
 
   for (const pathItem of Object.values(spec.paths ?? {})) {
@@ -85,14 +85,14 @@ function countOperationsMissingOperationId(spec: OpenAPISpecLike): number {
   return count;
 }
 
-function assertKnownKeys(
+function validateKeys(
   value: Record<string, unknown>,
   path: string,
   allowedKeys: readonly string[]
 ): void {
   for (const key of Object.keys(value)) {
     if (!allowedKeys.includes(key)) {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_UNKNOWN_KEY",
         message: `Unknown configuration key "${key}".`,
         path: `${path}.${key}`,
@@ -102,13 +102,13 @@ function assertKnownKeys(
   }
 }
 
-function readStringArray(value: unknown, path: string): string[] | undefined {
+function parseStringArray(value: unknown, path: string): string[] | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   if (!Array.isArray(value)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected an array of strings.",
       path,
@@ -121,7 +121,7 @@ function readStringArray(value: unknown, path: string): string[] | undefined {
 
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_INVALID_ARRAY_ITEM",
         message: "Array item must be a string.",
         path: `${path}[${index}]`,
@@ -133,7 +133,7 @@ function readStringArray(value: unknown, path: string): string[] | undefined {
     const trimmed = item.trim();
 
     if (trimmed.length === 0) {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_EMPTY_STRING",
         message: "String values cannot be empty.",
         path: `${path}[${index}]`,
@@ -146,7 +146,7 @@ function readStringArray(value: unknown, path: string): string[] | undefined {
   return normalized;
 }
 
-function readEnumArray<T extends string>(
+function parseEnumArray<T extends string>(
   value: unknown,
   options: {
     path: string;
@@ -159,7 +159,7 @@ function readEnumArray<T extends string>(
   }
 
   if (!Array.isArray(value)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected an array.",
       path: options.path,
@@ -172,7 +172,7 @@ function readEnumArray<T extends string>(
 
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_INVALID_ARRAY_ITEM",
         message: "Array item must be a string.",
         path: `${options.path}[${index}]`,
@@ -183,7 +183,7 @@ function readEnumArray<T extends string>(
 
     const trimmed = item.trim();
     if (trimmed.length === 0) {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_EMPTY_STRING",
         message: "String values cannot be empty.",
         path: `${options.path}[${index}]`,
@@ -193,7 +193,7 @@ function readEnumArray<T extends string>(
     const normalizedItem = (options.normalize ? options.normalize(trimmed) : trimmed) as T;
 
     if (!options.allowedValues.includes(normalizedItem)) {
-      throw new OpenApiAgentToolsDiagnosticError({
+      throw new PluginError({
         code: "E_CONFIG_INVALID_ENUM",
         message: `Invalid enum value "${item}".`,
         path: `${options.path}[${index}]`,
@@ -207,28 +207,28 @@ function readEnumArray<T extends string>(
   return normalizedValues;
 }
 
-function readMethods(value: unknown): HttpMethod[] | undefined {
-  return readEnumArray(value, {
+function parseMethods(value: unknown): HttpMethod[] | undefined {
+  return parseEnumArray(value, {
     path: "config.operations.methods",
     allowedValues: HTTP_METHODS,
     normalize: (method) => method.toLowerCase(),
   });
 }
 
-function readMetadataFields(value: unknown): MetadataField[] | undefined {
-  return readEnumArray(value, {
+function parseMetadataFields(value: unknown): MetadataField[] | undefined {
+  return parseEnumArray(value, {
     path: "config.metadata.include",
     allowedValues: METADATA_FIELDS,
   });
 }
 
-function readBoolean(value: unknown, path: string, defaultValue: boolean): boolean {
+function parseBoolean(value: unknown, path: string, defaultValue: boolean): boolean {
   if (value === undefined) {
     return defaultValue;
   }
 
   if (typeof value !== "boolean") {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected a boolean.",
       path,
@@ -240,13 +240,13 @@ function readBoolean(value: unknown, path: string, defaultValue: boolean): boole
   return value;
 }
 
-function readMetadataTransform(value: unknown): MetadataTransform | undefined {
+function parseMetadataTransform(value: unknown): MetadataTransformer | undefined {
   if (value === undefined) {
     return undefined;
   }
 
   if (typeof value !== "function") {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected a function.",
       path: "config.metadata.transform",
@@ -255,16 +255,16 @@ function readMetadataTransform(value: unknown): MetadataTransform | undefined {
     });
   }
 
-  return value as MetadataTransform;
+  return value as MetadataTransformer;
 }
 
-function readOutputFile(value: unknown): string {
+function parseOutputFile(value: unknown): string {
   if (value === undefined) {
     return DEFAULT_OUTPUT_FILE;
   }
 
   if (typeof value !== "string") {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected a string output filename.",
       path: "config.output.file",
@@ -276,7 +276,7 @@ function readOutputFile(value: unknown): string {
   const trimmed = value.trim();
 
   if (trimmed.length === 0) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_EMPTY_STRING",
       message: "Output filename cannot be empty.",
       path: "config.output.file",
@@ -286,13 +286,13 @@ function readOutputFile(value: unknown): string {
   return trimmed;
 }
 
-function readRootConfig(config: unknown): PluginConfigInput {
+function parseRootConfig(config: unknown): PluginConfigInput {
   if (config === undefined) {
     return {};
   }
 
   if (!isObject(config)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Plugin config must be an object.",
       path: "config",
@@ -302,11 +302,11 @@ function readRootConfig(config: unknown): PluginConfigInput {
   }
 
   const rootConfig = config as PluginConfigInput;
-  assertKnownKeys(rootConfig, "config", ROOT_CONFIG_KEYS);
+  validateKeys(rootConfig, "config", ROOT_KEYS);
   return rootConfig;
 }
 
-function readSection(
+function parseSection(
   config: PluginConfigInput,
   key: keyof PluginConfigInput,
   path: string,
@@ -319,7 +319,7 @@ function readSection(
   }
 
   if (!isObject(value)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected an object section.",
       path,
@@ -328,30 +328,30 @@ function readSection(
     });
   }
 
-  assertKnownKeys(value, path, allowedKeys);
+  validateKeys(value, path, allowedKeys);
   return value;
 }
 
-function resolveConfig(plugin: Plugin): PluginResolvedConfig {
-  const config = readRootConfig(plugin.config);
-  const outputConfig = readSection(config, "output", "config.output", OUTPUT_CONFIG_KEYS);
-  const operationsConfig = readSection(
+function resolveConfig(plugin: Plugin): ResolvedConfig {
+  const config = parseRootConfig(plugin.config);
+  const outputConfig = parseSection(config, "output", "config.output", OUTPUT_KEYS);
+  const operationsConfig = parseSection(
     config,
     "operations",
     "config.operations",
-    OPERATIONS_CONFIG_KEYS
+    OPERATIONS_KEYS
   );
-  const metadataConfig = readSection(config, "metadata", "config.metadata", METADATA_CONFIG_KEYS);
-  const providersConfig = readSection(
+  const metadataConfig = parseSection(config, "metadata", "config.metadata", METADATA_KEYS);
+  const providersConfig = parseSection(
     config,
     "providers",
     "config.providers",
-    PROVIDERS_CONFIG_KEYS
+    PROVIDERS_KEYS
   );
   const vercelAiSdkConfigValue = providersConfig["vercelAiSdk"];
 
   if (vercelAiSdkConfigValue !== undefined && !isObject(vercelAiSdkConfigValue)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_CONFIG_INVALID_TYPE",
       message: "Expected an object section.",
       path: "config.providers.vercelAiSdk",
@@ -361,27 +361,27 @@ function resolveConfig(plugin: Plugin): PluginResolvedConfig {
   }
 
   const vercelAiSdkConfig = (vercelAiSdkConfigValue ?? {}) as Record<string, unknown>;
-  assertKnownKeys(vercelAiSdkConfig, "config.providers.vercelAiSdk", VERCEL_AI_SDK_CONFIG_KEYS);
+  validateKeys(vercelAiSdkConfig, "config.providers.vercelAiSdk", VERCEL_SDK_KEYS);
 
   return {
     name: PLUGIN_NAME,
     output: {
-      file: readOutputFile(outputConfig["file"]),
+      file: parseOutputFile(outputConfig["file"]),
     },
     operations: {
-      includeIds: readStringArray(operationsConfig["includeIds"], "config.operations.includeIds"),
-      excludeIds: readStringArray(operationsConfig["excludeIds"], "config.operations.excludeIds"),
-      tags: readStringArray(operationsConfig["tags"], "config.operations.tags"),
-      methods: readMethods(operationsConfig["methods"]),
+      includeIds: parseStringArray(operationsConfig["includeIds"], "config.operations.includeIds"),
+      excludeIds: parseStringArray(operationsConfig["excludeIds"], "config.operations.excludeIds"),
+      tags: parseStringArray(operationsConfig["tags"], "config.operations.tags"),
+      methods: parseMethods(operationsConfig["methods"]),
     },
     metadata: {
-      enabled: readBoolean(metadataConfig["enabled"], "config.metadata.enabled", false),
-      include: readMetadataFields(metadataConfig["include"]),
-      transform: readMetadataTransform(metadataConfig["transform"]),
+      enabled: parseBoolean(metadataConfig["enabled"], "config.metadata.enabled", false),
+      include: parseMetadataFields(metadataConfig["include"]),
+      transform: parseMetadataTransform(metadataConfig["transform"]),
     },
     providers: {
       vercelAiSdk: {
-        enabled: readBoolean(
+        enabled: parseBoolean(
           vercelAiSdkConfig["enabled"],
           "config.providers.vercelAiSdk.enabled",
           false
@@ -395,7 +395,7 @@ function readSpec(plugin: Plugin, context: HandlerContext["context"] | undefined
   const specCandidate = context?.spec ?? plugin.context?.spec;
 
   if (!isObject(specCandidate)) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_SPEC_PATHS_MISSING",
       message: "Could not find a valid OpenAPI spec object.",
       path: "spec",
@@ -405,7 +405,7 @@ function readSpec(plugin: Plugin, context: HandlerContext["context"] | undefined
   }
 
   if (!isObject(specCandidate["paths"])) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_SPEC_PATHS_MISSING",
       message: "OpenAPI spec is missing a valid paths object.",
       path: "spec.paths",
@@ -421,22 +421,22 @@ function handler({ plugin, context }: HandlerContext): void {
   const config = resolveConfig(plugin);
   const spec = readSpec(plugin, context);
 
-  const missingOperationIdCount = countOperationsMissingOperationId(spec);
+  const missingCount = countMissingOperationIds(spec);
 
-  if (missingOperationIdCount > 0) {
-    throw new OpenApiAgentToolsDiagnosticError({
+  if (missingCount > 0) {
+    throw new PluginError({
       code: "E_SPEC_OPERATION_ID_MISSING",
       message: "All operations must define operationId in strict mode.",
       path: "spec.paths",
-      count: missingOperationIdCount,
+      count: missingCount,
       hint: "Add operationId to every operation before generating descriptors.",
     });
   }
 
-  const operations = extractOperations(spec, config);
+  const operations = parseOperations(spec, config);
 
   if (operations.length === 0) {
-    throw new OpenApiAgentToolsDiagnosticError({
+    throw new PluginError({
       code: "E_SPEC_NO_OPERATIONS_MATCHED",
       message: "No operations matched the configured filters.",
       path: "config.operations",
@@ -444,7 +444,7 @@ function handler({ plugin, context }: HandlerContext): void {
     });
   }
 
-  const descriptorsCode = generateToolDescriptorsCode(operations, config);
+  const descriptorsCode = generateDescriptors(operations, config);
 
   const outputFile = plugin.createFile({
     id: config.output.file,

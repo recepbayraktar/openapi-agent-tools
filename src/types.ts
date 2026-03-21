@@ -39,7 +39,7 @@ export interface JsonSchema {
   [key: string]: unknown;
 }
 
-export interface ParameterGroups {
+export interface ParamGroups {
   path: string[];
   query: string[];
   header: string[];
@@ -47,7 +47,7 @@ export interface ParameterGroups {
   body: string[];
 }
 
-export interface OperationInfo {
+export interface Operation {
   operationId: string;
   toolName: string;
   sdkFunctionName: string;
@@ -57,20 +57,20 @@ export interface OperationInfo {
   description: string | undefined;
   tags: string[];
   inputSchema: JsonSchema;
-  parameterGroups: ParameterGroups;
+  parameterGroups: ParamGroups;
 }
 
-export interface ToolDescriptorMetadata {
+export interface ToolMetadata {
   intentType?: IntentType;
   entityNouns?: string[];
   safetyLevel?: SafetyLevel;
   routingDescription?: string;
 }
 
-export type MetadataTransform = (
-  metadata: ToolDescriptorMetadata | undefined,
-  operation: OperationInfo
-) => ToolDescriptorMetadata | undefined;
+export type MetadataTransformer = (
+  metadata: ToolMetadata | undefined,
+  operation: Operation
+) => ToolMetadata | undefined;
 
 export interface ToolDescriptor {
   method: HttpMethod;
@@ -82,16 +82,16 @@ export interface ToolDescriptor {
   description?: string;
   tags: string[];
   inputSchema: JsonSchema;
-  parameterGroups: ParameterGroups;
-  metadata?: ToolDescriptorMetadata;
+  parameterGroups: ParamGroups;
+  metadata?: ToolMetadata;
 }
 
-export interface ToolDescriptorsFile {
+export interface ToolRegistry {
   toolDescriptors: ToolDescriptor[];
   toolDescriptorMap: Record<string, ToolDescriptor>;
 }
 
-export interface PluginUserConfig {
+export interface PluginConfig {
   name: "@recepbayraktar/openapi-agent-tools";
   output?: {
     file?: string;
@@ -105,16 +105,17 @@ export interface PluginUserConfig {
   metadata?: {
     enabled?: boolean;
     include?: MetadataField[];
-    transform?: MetadataTransform;
+    transform?: MetadataTransformer;
   };
   providers?: {
     vercelAiSdk?: {
       enabled?: boolean;
+      generateTools?: boolean;
     };
   };
 }
 
-export interface PluginResolvedConfig {
+export interface ResolvedConfig {
   name: "@recepbayraktar/openapi-agent-tools";
   output: {
     file: string;
@@ -128,11 +129,12 @@ export interface PluginResolvedConfig {
   metadata: {
     enabled: boolean;
     include: MetadataField[] | undefined;
-    transform: MetadataTransform | undefined;
+    transform: MetadataTransformer | undefined;
   };
   providers: {
     vercelAiSdk: {
       enabled: boolean;
+      generateTools: boolean;
     };
   };
 }

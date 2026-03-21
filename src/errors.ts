@@ -1,6 +1,6 @@
 export const PLUGIN_NAME = "@recepbayraktar/openapi-agent-tools" as const;
 
-export type DiagnosticCode =
+export type ErrorCode =
   | "E_CONFIG_INVALID_TYPE"
   | "E_CONFIG_INVALID_ARRAY_ITEM"
   | "E_CONFIG_INVALID_ENUM"
@@ -10,8 +10,8 @@ export type DiagnosticCode =
   | "E_SPEC_OPERATION_ID_MISSING"
   | "E_SPEC_NO_OPERATIONS_MATCHED";
 
-export interface DiagnosticDetails {
-  code: DiagnosticCode;
+export interface ErrorDetails {
+  code: ErrorCode;
   message: string;
   path?: string;
   expected?: string;
@@ -53,7 +53,7 @@ function describeValue(value: unknown): string {
   return typeof value;
 }
 
-function formatDiagnosticMessage(details: DiagnosticDetails): string {
+function formatErrorMessage(details: ErrorDetails): string {
   const context: string[] = [];
 
   if (details.path) {
@@ -85,8 +85,8 @@ function formatDiagnosticMessage(details: DiagnosticDetails): string {
   return `[${PLUGIN_NAME}] ${details.code}: ${details.message}${suffix}`;
 }
 
-export class OpenApiAgentToolsDiagnosticError extends Error {
-  readonly code: DiagnosticCode;
+export class PluginError extends Error {
+  readonly code: ErrorCode;
   readonly path: string | undefined;
   readonly expected: string | undefined;
   readonly received: unknown;
@@ -94,9 +94,9 @@ export class OpenApiAgentToolsDiagnosticError extends Error {
   readonly count: number | undefined;
   readonly hint: string | undefined;
 
-  constructor(details: DiagnosticDetails) {
-    super(formatDiagnosticMessage(details));
-    this.name = "OpenApiAgentToolsDiagnosticError";
+  constructor(details: ErrorDetails) {
+    super(formatErrorMessage(details));
+    this.name = "PluginError";
     this.code = details.code;
     this.path = details.path;
     this.expected = details.expected;

@@ -1,8 +1,8 @@
 export { default } from "./plugin.js";
 export {
-  OpenApiAgentToolsDiagnosticError,
-  type DiagnosticCode,
-  type DiagnosticDetails,
+  PluginError,
+  type ErrorCode,
+  type ErrorDetails,
   PLUGIN_NAME,
 } from "./errors.js";
 
@@ -11,22 +11,22 @@ export type {
   IntentType,
   JsonSchema,
   MetadataField,
-  MetadataTransform,
-  OperationInfo,
-  ParameterGroups,
-  PluginResolvedConfig,
-  PluginUserConfig,
+  MetadataTransformer,
+  Operation,
+  ParamGroups,
+  ResolvedConfig,
+  PluginConfig,
   SafetyLevel,
   ToolDescriptor,
-  ToolDescriptorMetadata,
-  ToolDescriptorsFile,
+  ToolMetadata,
+  ToolRegistry,
 } from "./types.js";
 
 export {
-  buildRoutingDescription,
-  deriveIntentType,
-  deriveSafetyLevel,
-  extractEntityNouns,
-  extractOperations,
-  generateToolDescriptorsCode,
+  buildRouteDescription,
+  inferIntent,
+  inferSafety,
+  extractNouns,
+  parseOperations,
+  generateDescriptors,
 } from "./generator.js";

@@ -357,9 +357,9 @@ test("generateToolDescriptorsCode creates descriptor-only output", () => {
   assert.ok(code.includes('"inputSchema":'));
   assert.ok(code.includes('"parameterGroups":'));
 
-  assert.ok(!code.includes('import { tool } from "ai"'));
-  assert.ok(!code.includes("execute: async"));
-  assert.ok(!code.includes("createVercelAiTools"));
+  assert.ok(!code.includes('import { tool, jsonSchema } from "ai"'));
+  assert.ok(!code.includes("createTool"));
+  assert.ok(!code.includes("createToolsFromSdk"));
   assert.ok(!code.includes("console.log"));
   assert.ok(!code.includes("IMPORTANT: All filter parameters"));
 });
@@ -424,12 +424,11 @@ test("generateToolDescriptorsCode emits direct Vercel AI SDK tools when provider
   const operations = extractOperations(sampleSpec, config);
   const code = generateToolDescriptorsCode(operations, config);
 
-  assert.ok(code.includes("export interface VercelAiToolDefinition"));
-  assert.ok(code.includes("export const tools: VercelAiToolMap = {"));
-  assert.ok(!code.includes("createVercelAiTools"));
-  assert.ok(code.includes("Missing execute implementation for tool"));
-  assert.ok(code.includes("inputSchema: toolDescriptorMap"));
-  assert.ok(code.includes("parameters: toolDescriptorMap"));
+  assert.ok(code.includes('import { tool, jsonSchema } from "ai"'));
+  assert.ok(code.includes("export function createTool("));
+  assert.ok(code.includes("export function createToolsFromSdk("));
+  assert.ok(code.includes("parameters: jsonSchema(descriptor.inputSchema)"));
+  assert.ok(code.includes("d.sdkFunctionName"));
 });
 
 test("plugin config exposes plugin identity and default output", () => {

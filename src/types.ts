@@ -110,6 +110,7 @@ export interface PluginConfig {
   providers?: {
     vercelAiSdk?: {
       enabled?: boolean;
+      generateTools?: boolean;
     };
   };
 }
@@ -133,6 +134,7 @@ export interface ResolvedConfig {
   providers: {
     vercelAiSdk: {
       enabled: boolean;
+      generateTools: boolean;
     };
   };
 }

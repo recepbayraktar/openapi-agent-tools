@@ -20,7 +20,7 @@ const OUTPUT_KEYS = ["file"] as const;
 const OPERATIONS_KEYS = ["includeIds", "excludeIds", "tags", "methods"] as const;
 const METADATA_KEYS = ["enabled", "include", "transform"] as const;
 const PROVIDERS_KEYS = ["vercelAiSdk"] as const;
-const VERCEL_SDK_KEYS = ["enabled"] as const;
+const VERCEL_SDK_KEYS = ["enabled", "generateTools"] as const;
 const DEFAULT_OUTPUT_FILE = "tool-descriptors";
 
 interface PluginFile {
@@ -384,6 +384,11 @@ function resolveConfig(plugin: Plugin): ResolvedConfig {
         enabled: parseBoolean(
           vercelAiSdkConfig["enabled"],
           "config.providers.vercelAiSdk.enabled",
+          false
+        ),
+        generateTools: parseBoolean(
+          vercelAiSdkConfig["generateTools"],
+          "config.providers.vercelAiSdk.generateTools",
           false
         ),
       },

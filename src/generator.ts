@@ -903,6 +903,125 @@ ${namedExports}
 `;
 }
 
+function generateMastraHelperCode(): string {
+  return `function _zodFromJsonSchema(schema: JsonSchema): z.ZodTypeAny {
+  if (schema["type"] === "string") {
+    const enums = schema["enum"] as string[] | undefined;
+    if (enums && enums.length > 0) return z.enum(enums as [string, ...string[]]);
+    return z.string();
+  }
+  if (schema["type"] === "number" || schema["type"] === "integer") return z.number();
+  if (schema["type"] === "boolean") return z.boolean();
+  if (schema["type"] === "array") {
+    return z.array(_zodFromJsonSchema((schema["items"] ?? {}) as JsonSchema));
+  }
+  if (schema["type"] === "object") {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    const required = (schema["required"] ?? []) as string[];
+    for (const [key, val] of Object.entries(schema["properties"] ?? {})) {
+      const field = _zodFromJsonSchema(val as JsonSchema);
+      shape[key] = required.includes(key) ? field : field.optional();
+    }
+    return z.object(shape);
+  }
+  return z.unknown();
+}
+
+export function createMastraTool(descriptor: ToolDescriptor, sdkFn: (input: never) => Promise<unknown>) {
+  return _mastraCreateTool({
+    id: descriptor.toolName,
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: _zodFromJsonSchema(descriptor.inputSchema) as z.ZodObject<z.ZodRawShape>,
+    execute: async (inputData) => sdkFn(inputData as never),
+  });
+}
+
+export function createMastraTools(sdk: Record<string, (input: never) => Promise<unknown>>) {
+  return Object.fromEntries(
+    toolDescriptors.map((d) => [
+      d.sdkFunctionName,
+      createMastraTool(d, sdk[d.sdkFunctionName] as (input: never) => Promise<unknown>),
+    ])
+  ) as Record<string, ReturnType<typeof createMastraTool>>;
+}
+
+export function buildWrappedSdk(
+  accessToken: string,
+): Record<string, (input: never) => Promise<unknown>> {
+  const authHeaders = { Authorization: \`Bearer \${accessToken}\` };
+  const wrapped: Record<string, (input: never) => Promise<unknown>> = {};
+
+  for (const descriptor of toolDescriptors) {
+    const sdkFn = (sdk as Record<string, unknown>)[descriptor.sdkFunctionName] as
+      | ((opts: unknown) => Promise<{ data?: unknown }>)
+      | undefined;
+    if (!sdkFn) continue;
+
+    const pathKeys = descriptor.parameterGroups.path;
+    const queryKeys = descriptor.parameterGroups.query;
+    const usedKeys = new Set([...pathKeys, ...queryKeys]);
+    const hasBody =
+      descriptor.method === "post" ||
+      descriptor.method === "put" ||
+      descriptor.method === "patch";
+
+    wrapped[descriptor.sdkFunctionName] = async (input: never) => {
+      const flat = input as Record<string, unknown>;
+      const result = await sdkFn({
+        path: Object.fromEntries(pathKeys.map((k) => [k, flat[k]])),
+        query: Object.fromEntries(queryKeys.map((k) => [k, flat[k]])),
+        ...(hasBody && {
+          body: Object.fromEntries(Object.entries(flat).filter(([k]) => !usedKeys.has(k))),
+        }),
+        headers: authHeaders,
+      });
+      return result?.data ?? result;
+    };
+  }
+
+  return wrapped;
+}
+`;
+}
+
+function generateMastraSdkToolsCode(operations: Operation[]): string {
+  const namedExports = operations
+    .map((op) => `export const ${op.sdkFunctionName} = _createMastraSdkTool(toolDescriptorMap[${JSON.stringify(op.toolName)}]);`)
+    .join("\n");
+
+  return `\nfunction _createMastraSdkTool(descriptor: ToolDescriptor) {
+  const pathKeys = descriptor.parameterGroups.path;
+  const queryKeys = descriptor.parameterGroups.query;
+  const usedKeys = new Set([...pathKeys, ...queryKeys]);
+  const hasBody =
+    descriptor.method === "post" ||
+    descriptor.method === "put" ||
+    descriptor.method === "patch";
+  return _mastraCreateTool({
+    id: descriptor.toolName,
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: _zodFromJsonSchema(descriptor.inputSchema) as z.ZodObject<z.ZodRawShape>,
+    execute: async (inputData: Record<string, unknown>) => {
+      const flat = inputData;
+      return (sdk as Record<string, (opts: never) => unknown>)[descriptor.sdkFunctionName]({
+        path: Object.fromEntries(pathKeys.map((k) => [k, flat[k]])),
+        query: Object.fromEntries(queryKeys.map((k) => [k, flat[k]])),
+        ...(hasBody && {
+          body: Object.fromEntries(Object.entries(flat).filter(([k]) => !usedKeys.has(k))),
+        }),
+      } as never);
+    },
+  });
+}
+
+export const mastraTools = Object.fromEntries(
+  toolDescriptors.map((d) => [d.sdkFunctionName, _createMastraSdkTool(d)])
+) as Record<string, ReturnType<typeof _createMastraSdkTool>>;
+
+${namedExports}
+`;
+}
+
 export function generateDescriptors(
   operations: Operation[],
   config: ResolvedConfig
@@ -922,6 +1041,7 @@ export function generateDescriptors(
     .join("\n");
 
   const needsAiImport = config.providers.vercelAiSdk.enabled || config.providers.vercelAiSdk.generateTools;
+  const needsMastraImport = config.providers.mastra?.enabled || config.providers.mastra?.generateTools;
 
   const providerHelpers = config.providers.vercelAiSdk.enabled
     ? `\n${generateVercelAiSdkToolsCode()}`
@@ -931,13 +1051,28 @@ export function generateDescriptors(
     ? generateSdkToolsCode(operations)
     : "";
 
+  const mastraHelperCode = config.providers.mastra?.enabled
+    ? `\n${generateMastraHelperCode()}`
+    : "";
+
+  const mastraSdkToolsCode = config.providers.mastra?.generateTools
+    ? generateMastraSdkToolsCode(operations)
+    : "";
+
   const aiImport = needsAiImport
     ? 'import { tool, jsonSchema } from "ai";\n\n'
     : "";
 
-  const sdkImport = config.providers.vercelAiSdk.generateTools
-    ? 'import * as sdk from "./sdk.gen";\n'
+  const mastraImport = needsMastraImport
+    ? 'import { createTool as _mastraCreateTool } from "@mastra/core/tools";\nimport { z } from "zod";\n\n'
     : "";
 
-  return `// AUTO-GENERATED - DO NOT EDIT\n// Generated by @recepbayraktar/openapi-agent-tools\n${aiImport}${sdkImport}export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";\n\nexport type IntentType = "read" | "search" | "create" | "update" | "delete" | "workflow";\n\nexport type SafetyLevel = "safe" | "confirm" | "dangerous";\n\nexport interface JsonSchema {\n  [key: string]: unknown;\n}\n\nexport interface ParamGroups {\n  path: string[];\n  query: string[];\n  header: string[];\n  cookie: string[];\n  body: string[];\n}\n\nexport interface ToolMetadata {\n  intentType?: IntentType;\n  entityNouns?: string[];\n  safetyLevel?: SafetyLevel;\n  routingDescription?: string;\n}\n\nexport interface ToolDescriptor {\n  method: HttpMethod;\n  path: string;\n  operationId: string;\n  toolName: string;\n  sdkFunctionName: string;\n  summary: string;\n  description?: string;\n  tags: string[];\n  inputSchema: JsonSchema;\n  parameterGroups: ParamGroups;\n  metadata?: ToolMetadata;\n}\n\nexport const toolDescriptors: ToolDescriptor[] = [\n${descriptorEntries}\n];\n\nexport const toolDescriptorMap: Record<string, ToolDescriptor> = {\n${mapEntries}\n};\n${providerHelpers}${sdkToolsCode}\nexport type ToolRegistry = {\n  toolDescriptors: typeof toolDescriptors;\n  toolDescriptorMap: typeof toolDescriptorMap;\n};\n`;
+  const sdkImport =
+    config.providers.vercelAiSdk.generateTools ||
+    config.providers.mastra?.generateTools ||
+    config.providers.mastra?.enabled
+      ? 'import * as sdk from "./sdk.gen";\n'
+      : "";
+
+  return `// AUTO-GENERATED - DO NOT EDIT\n// Generated by @recepbayraktar/openapi-agent-tools\n${aiImport}${mastraImport}${sdkImport}export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";\n\nexport type IntentType = "read" | "search" | "create" | "update" | "delete" | "workflow";\n\nexport type SafetyLevel = "safe" | "confirm" | "dangerous";\n\nexport interface JsonSchema {\n  [key: string]: unknown;\n}\n\nexport interface ParamGroups {\n  path: string[];\n  query: string[];\n  header: string[];\n  cookie: string[];\n  body: string[];\n}\n\nexport interface ToolMetadata {\n  intentType?: IntentType;\n  entityNouns?: string[];\n  safetyLevel?: SafetyLevel;\n  routingDescription?: string;\n}\n\nexport interface ToolDescriptor {\n  method: HttpMethod;\n  path: string;\n  operationId: string;\n  toolName: string;\n  sdkFunctionName: string;\n  summary: string;\n  description?: string;\n  tags: string[];\n  inputSchema: JsonSchema;\n  parameterGroups: ParamGroups;\n  metadata?: ToolMetadata;\n}\n\nexport const toolDescriptors: ToolDescriptor[] = [\n${descriptorEntries}\n];\n\nexport const toolDescriptorMap: Record<string, ToolDescriptor> = {\n${mapEntries}\n};\n${providerHelpers}${sdkToolsCode}${mastraHelperCode}${mastraSdkToolsCode}\nexport type ToolRegistry = {\n  toolDescriptors: typeof toolDescriptors;\n  toolDescriptorMap: typeof toolDescriptorMap;\n};\n`;
 }

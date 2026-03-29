@@ -19,8 +19,9 @@ const ROOT_KEYS = ["output", "operations", "metadata", "providers"] as const;
 const OUTPUT_KEYS = ["file"] as const;
 const OPERATIONS_KEYS = ["includeIds", "excludeIds", "tags", "methods"] as const;
 const METADATA_KEYS = ["enabled", "include", "transform"] as const;
-const PROVIDERS_KEYS = ["vercelAiSdk"] as const;
+const PROVIDERS_KEYS = ["vercelAiSdk", "mastra"] as const;
 const VERCEL_SDK_KEYS = ["enabled", "generateTools"] as const;
+const MASTRA_KEYS = ["enabled", "generateTools"] as const;
 const DEFAULT_OUTPUT_FILE = "tool-descriptors";
 
 interface PluginFile {
@@ -363,6 +364,21 @@ function resolveConfig(plugin: Plugin): ResolvedConfig {
   const vercelAiSdkConfig = (vercelAiSdkConfigValue ?? {}) as Record<string, unknown>;
   validateKeys(vercelAiSdkConfig, "config.providers.vercelAiSdk", VERCEL_SDK_KEYS);
 
+  const mastraConfigValue = providersConfig["mastra"];
+
+  if (mastraConfigValue !== undefined && !isObject(mastraConfigValue)) {
+    throw new PluginError({
+      code: "E_CONFIG_INVALID_TYPE",
+      message: "Expected an object section.",
+      path: "config.providers.mastra",
+      expected: "object",
+      received: mastraConfigValue,
+    });
+  }
+
+  const mastraConfig = (mastraConfigValue ?? {}) as Record<string, unknown>;
+  validateKeys(mastraConfig, "config.providers.mastra", MASTRA_KEYS);
+
   return {
     name: PLUGIN_NAME,
     output: {
@@ -389,6 +405,18 @@ function resolveConfig(plugin: Plugin): ResolvedConfig {
         generateTools: parseBoolean(
           vercelAiSdkConfig["generateTools"],
           "config.providers.vercelAiSdk.generateTools",
+          false
+        ),
+      },
+      mastra: {
+        enabled: parseBoolean(
+          mastraConfig["enabled"],
+          "config.providers.mastra.enabled",
+          false
+        ),
+        generateTools: parseBoolean(
+          mastraConfig["generateTools"],
+          "config.providers.mastra.generateTools",
           false
         ),
       },

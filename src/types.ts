@@ -112,6 +112,10 @@ export interface PluginConfig {
       enabled?: boolean;
       generateTools?: boolean;
     };
+    mastra?: {
+      enabled?: boolean;
+      generateTools?: boolean;
+    };
   };
 }
 
@@ -133,6 +137,10 @@ export interface ResolvedConfig {
   };
   providers: {
     vercelAiSdk: {
+      enabled: boolean;
+      generateTools: boolean;
+    };
+    mastra: {
       enabled: boolean;
       generateTools: boolean;
     };

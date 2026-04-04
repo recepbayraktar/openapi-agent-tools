@@ -79,6 +79,57 @@ export const tools = {
 
 Generated tools expose both `inputSchema` and `parameters` for AI SDK version compatibility.
 
+### Mastra
+
+```ts
+{
+  name: "@recepbayraktar/openapi-agent-tools",
+  providers: {
+    mastra: {
+      enabled: true,
+    },
+  },
+}
+```
+
+When enabled, generated output adds `createMastraTool` and `createMastraTools` helpers.
+
+```ts
+import { createMastraTools } from "./generated/tool-descriptors.gen";
+import * as contentSdk from "./generated/sdk.gen";
+
+export const tools = createMastraTools(contentSdk);
+
+// Pass to a Mastra agent
+const agent = new Agent({
+  name: "my-agent",
+  tools,
+  model: openai("gpt-4o"),
+});
+```
+
+Set `generateTools: true` to also export a pre-built `mastraTools` map and individual named tool exports (one per operation) with automatic path/query/body parameter routing.
+
+```ts
+{
+  name: "@recepbayraktar/openapi-agent-tools",
+  providers: {
+    mastra: {
+      enabled: true,
+      generateTools: true,
+    },
+  },
+}
+```
+
+```ts
+// Pre-built map — pass directly to an agent
+import { mastraTools } from "./generated/tool-descriptors.gen";
+
+// Or use individual named exports
+import { getUserById, createUser } from "./generated/tool-descriptors.gen";
+```
+
 ## Notes
 
 - Every operation should define `operationId`.

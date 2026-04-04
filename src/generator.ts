@@ -3,12 +3,12 @@ import type {
   IntentType,
   JsonSchema,
   MetadataField,
-  OperationInfo,
-  ParameterGroups,
-  PluginResolvedConfig,
+  Operation,
+  ParamGroups,
+  ResolvedConfig,
   SafetyLevel,
   ToolDescriptor,
-  ToolDescriptorMetadata,
+  ToolMetadata,
 } from "./types.js";
 
 const SUPPORTED_METHODS = ["get", "post", "put", "patch", "delete"] as const;
@@ -320,9 +320,9 @@ function pushUnique(list: string[], value: string): void {
   }
 }
 
-function buildUniqueParamName(
+function uniqueParamName(
   properties: Record<string, JsonSchema>,
-  location: keyof ParameterGroups,
+  location: keyof ParamGroups,
   rawName: string
 ): string {
   if (!(rawName in properties)) {
@@ -340,7 +340,7 @@ function buildUniqueParamName(
   return candidate;
 }
 
-function getBodySchemaFromContent(content: Record<string, OpenAPIMediaType> | undefined): unknown {
+function bodySchemaFromContent(content: Record<string, OpenAPIMediaType> | undefined): unknown {
   if (!content || Object.keys(content).length === 0) {
     return undefined;
   }
@@ -357,7 +357,7 @@ function getBodySchemaFromContent(content: Record<string, OpenAPIMediaType> | un
   return Object.values(content)[0]?.schema;
 }
 
-function mergeParametersForOperation(
+function mergeParams(
   spec: OpenAPISpec,
   pathParameters: unknown[],
   operationParameters: unknown[]
@@ -398,17 +398,17 @@ function mergeParametersForOperation(
   return mergedParameters;
 }
 
-function buildInputShape(
+function buildInputSchema(
   spec: OpenAPISpec,
   pathItem: OpenAPIPathItem,
   operation: OpenAPIOperation
 ): {
   inputSchema: JsonSchema;
-  parameterGroups: ParameterGroups;
+  parameterGroups: ParamGroups;
 } {
   const properties: Record<string, JsonSchema> = {};
   const required = new Set<string>();
-  const parameterGroups: ParameterGroups = {
+  const parameterGroups: ParamGroups = {
     path: [],
     query: [],
     header: [],
@@ -416,7 +416,7 @@ function buildInputShape(
     body: [],
   };
 
-  const allParameters = mergeParametersForOperation(
+  const allParameters = mergeParams(
     spec,
     pathItem.parameters ?? [],
     operation.parameters ?? []
@@ -445,7 +445,7 @@ function buildInputShape(
     }
 
     const normalizedSchema = toJsonSchema(spec, schema);
-    const finalName = buildUniqueParamName(properties, location, parameter.name);
+    const finalName = uniqueParamName(properties, location, parameter.name);
 
     properties[finalName] = normalizedSchema;
     pushUnique(parameterGroups[location], finalName);
@@ -456,7 +456,7 @@ function buildInputShape(
   }
 
   const requestBody = resolveRequestBody(spec, operation.requestBody);
-  const requestBodySchema = getBodySchemaFromContent(requestBody?.content);
+  const requestBodySchema = bodySchemaFromContent(requestBody?.content);
 
   if (requestBodySchema) {
     const normalizedBodySchema = toJsonSchema(spec, requestBodySchema);
@@ -475,7 +475,7 @@ function buildInputShape(
       );
 
       for (const [name, bodyPropertySchema] of Object.entries(bodyProperties)) {
-        const finalName = buildUniqueParamName(properties, "body", name);
+        const finalName = uniqueParamName(properties, "body", name);
         properties[finalName] = bodyPropertySchema;
         pushUnique(parameterGroups.body, finalName);
 
@@ -484,7 +484,7 @@ function buildInputShape(
         }
       }
     } else {
-      const finalName = buildUniqueParamName(properties, "body", "body");
+      const finalName = uniqueParamName(properties, "body", "body");
       properties[finalName] = normalizedBodySchema;
       pushUnique(parameterGroups.body, finalName);
 
@@ -510,7 +510,7 @@ function buildInputShape(
   };
 }
 
-export function deriveIntentType(method: HttpMethod, operationId: string): IntentType {
+export function inferIntent(method: HttpMethod, operationId: string): IntentType {
   const lowerOpId = operationId.toLowerCase();
 
   if (method === "delete") {
@@ -571,7 +571,7 @@ function singularize(word: string): string {
   return word;
 }
 
-function extractNounsFromOperationId(operationId: string): string[] {
+function nounsFromOperationId(operationId: string): string[] {
   const withoutVerb = operationId.replace(
     /^(get|list|search|find|create|update|delete|remove|add|set|patch|put|post)/i,
     ""
@@ -596,7 +596,7 @@ function extractNounsFromOperationId(operationId: string): string[] {
   return nouns;
 }
 
-export function extractEntityNouns(path: string, operationId: string): string[] {
+export function extractNouns(path: string, operationId: string): string[] {
   const nouns = new Set<string>();
 
   const pathSegments = path.split("/").filter((segment) => segment && !segment.startsWith("{"));
@@ -611,14 +611,14 @@ export function extractEntityNouns(path: string, operationId: string): string[] 
     nouns.add(singularize(normalized));
   }
 
-  for (const noun of extractNounsFromOperationId(operationId)) {
+  for (const noun of nounsFromOperationId(operationId)) {
     nouns.add(noun);
   }
 
   return Array.from(nouns);
 }
 
-export function deriveSafetyLevel(method: HttpMethod, operationId: string): SafetyLevel {
+export function inferSafety(method: HttpMethod, operationId: string): SafetyLevel {
   const lowerOpId = operationId.toLowerCase();
 
   if (method === "get") {
@@ -638,7 +638,7 @@ export function deriveSafetyLevel(method: HttpMethod, operationId: string): Safe
   return "confirm";
 }
 
-export function buildRoutingDescription(
+export function buildRouteDescription(
   intentType: IntentType,
   summary: string,
   entityNouns: string[],
@@ -682,11 +682,11 @@ function hasIntersection(left: string[] | undefined, right: string[]): boolean {
   return right.some((value) => left.includes(value));
 }
 
-export function extractOperations(
+export function parseOperations(
   spec: OpenAPISpec,
-  config: PluginResolvedConfig
-): OperationInfo[] {
-  const operations: OperationInfo[] = [];
+  config: ResolvedConfig
+): Operation[] {
+  const operations: Operation[] = [];
 
   for (const [path, pathItemRaw] of Object.entries(spec.paths ?? {})) {
     const pathItem = (pathItemRaw ?? {}) as OpenAPIPathItem & Record<string, unknown>;
@@ -731,7 +731,7 @@ export function extractOperations(
           ? operation.description
           : undefined;
 
-      const { inputSchema, parameterGroups } = buildInputShape(spec, pathItem, operation);
+      const { inputSchema, parameterGroups } = buildInputSchema(spec, pathItem, operation);
 
       operations.push({
         operationId: operation.operationId,
@@ -751,7 +751,7 @@ export function extractOperations(
   return operations;
 }
 
-function pickMetadataFields(config: PluginResolvedConfig): MetadataField[] {
+function pickMetadataFields(config: ResolvedConfig): MetadataField[] {
   if (!config.metadata.enabled) {
     return [];
   }
@@ -761,34 +761,34 @@ function pickMetadataFields(config: PluginResolvedConfig): MetadataField[] {
     : ALL_METADATA_FIELDS;
 }
 
-function buildDescriptorMetadata(
-  operation: OperationInfo,
-  config: PluginResolvedConfig
-): ToolDescriptorMetadata | undefined {
+function buildMetadata(
+  operation: Operation,
+  config: ResolvedConfig
+): ToolMetadata | undefined {
   const metadataFields = pickMetadataFields(config);
-  let metadata: ToolDescriptorMetadata | undefined;
+  let metadata: ToolMetadata | undefined;
 
   if (metadataFields.length > 0) {
     metadata = {};
 
     if (metadataFields.includes("intentType")) {
-      metadata.intentType = deriveIntentType(operation.method, operation.operationId);
+      metadata.intentType = inferIntent(operation.method, operation.operationId);
     }
 
     if (metadataFields.includes("entityNouns")) {
-      metadata.entityNouns = extractEntityNouns(operation.path, operation.operationId);
+      metadata.entityNouns = extractNouns(operation.path, operation.operationId);
     }
 
     if (metadataFields.includes("safetyLevel")) {
-      metadata.safetyLevel = deriveSafetyLevel(operation.method, operation.operationId);
+      metadata.safetyLevel = inferSafety(operation.method, operation.operationId);
     }
 
     if (metadataFields.includes("routingDescription")) {
       const intentType =
-        metadata.intentType ?? deriveIntentType(operation.method, operation.operationId);
+        metadata.intentType ?? inferIntent(operation.method, operation.operationId);
       const entityNouns =
-        metadata.entityNouns ?? extractEntityNouns(operation.path, operation.operationId);
-      metadata.routingDescription = buildRoutingDescription(
+        metadata.entityNouns ?? extractNouns(operation.path, operation.operationId);
+      metadata.routingDescription = buildRouteDescription(
         intentType,
         operation.summary,
         entityNouns,
@@ -806,9 +806,9 @@ function buildDescriptorMetadata(
   return transformedMetadata;
 }
 
-function buildToolDescriptor(
-  operation: OperationInfo,
-  config: PluginResolvedConfig
+function buildDescriptor(
+  operation: Operation,
+  config: ResolvedConfig
 ): ToolDescriptor {
   const descriptor: ToolDescriptor = {
     method: operation.method,
@@ -826,7 +826,7 @@ function buildToolDescriptor(
     descriptor.description = operation.description;
   }
 
-  const metadata = buildDescriptorMetadata(operation, config);
+  const metadata = buildMetadata(operation, config);
   if (metadata) {
     descriptor.metadata = metadata;
   }
@@ -834,7 +834,7 @@ function buildToolDescriptor(
   return descriptor;
 }
 
-function assertUniqueToolNames(descriptors: ToolDescriptor[]): void {
+function validateUniqueNames(descriptors: ToolDescriptor[]): void {
   const seenToolNames = new Map<string, string>();
 
   for (const descriptor of descriptors) {
@@ -850,29 +850,185 @@ function assertUniqueToolNames(descriptors: ToolDescriptor[]): void {
   }
 }
 
-function generateVercelAiSdkToolsCode(descriptors: ToolDescriptor[]): string {
-  const toolEntries = descriptors
-    .map((descriptor) => {
-      const toolName = JSON.stringify(descriptor.toolName);
-      const description = JSON.stringify(descriptor.description ?? descriptor.summary);
-      const missingExecuteMessage = JSON.stringify(
-        `Missing execute implementation for tool "${descriptor.toolName}" (operationId: "${descriptor.operationId}").`
-      );
-
-      return `  ${toolName}: {\n    description: ${description},\n    inputSchema: toolDescriptorMap[${toolName}].inputSchema,\n    parameters: toolDescriptorMap[${toolName}].inputSchema,\n    execute: async (_input: Record<string, unknown>) => {\n      throw new Error(${missingExecuteMessage});\n    },\n  },`;
-    })
-    .join("\n");
-
-  return `export type ToolExecutor = (input: Record<string, unknown>) => unknown | Promise<unknown>;\n\nexport interface VercelAiToolDefinition {\n  description: string;\n  inputSchema: JsonSchema;\n  parameters: JsonSchema;\n  execute: ToolExecutor;\n}\n\nexport type VercelAiToolMap = Record<string, VercelAiToolDefinition>;\n\nexport const tools: VercelAiToolMap = {\n${toolEntries}\n};\n`;
+function generateVercelAiSdkToolsCode(): string {
+  return `export function createTool(descriptor: ToolDescriptor, sdkFn: (input: never) => Promise<unknown>) {
+  return tool({
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: jsonSchema(descriptor.inputSchema),
+    execute: async (input) => sdkFn(input as never),
+  });
 }
 
-export function generateToolDescriptorsCode(
-  operations: OperationInfo[],
-  config: PluginResolvedConfig
-): string {
-  const descriptors = operations.map((operation) => buildToolDescriptor(operation, config));
+export function createToolsFromSdk(sdk: Record<string, (input: never) => Promise<unknown>>) {
+  return Object.fromEntries(
+    toolDescriptors.map((d) => [
+      d.sdkFunctionName,
+      createTool(d, sdk[d.sdkFunctionName] as (input: never) => Promise<unknown>),
+    ])
+  ) as Record<string, ReturnType<typeof createTool>>;
+}
+`;
+}
 
-  assertUniqueToolNames(descriptors);
+function generateSdkToolsCode(operations: Operation[]): string {
+  const namedExports = operations
+    .map((op) => `export const ${op.sdkFunctionName} = _createSdkTool(toolDescriptorMap[${JSON.stringify(op.toolName)}]);`)
+    .join("\n");
+
+  return `\nfunction _createSdkTool(descriptor: ToolDescriptor) {
+  const pathKeys = descriptor.parameterGroups.path;
+  const queryKeys = descriptor.parameterGroups.query;
+  const usedKeys = new Set([...pathKeys, ...queryKeys]);
+  const hasBody =
+    descriptor.method === "post" ||
+    descriptor.method === "put" ||
+    descriptor.method === "patch";
+  return tool({
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: jsonSchema(descriptor.inputSchema),
+    execute: async (input) => {
+      const flat = input as Record<string, unknown>;
+      return (sdk as Record<string, (opts: never) => unknown>)[descriptor.sdkFunctionName]({
+        path: Object.fromEntries(pathKeys.map((k) => [k, flat[k]])),
+        query: Object.fromEntries(queryKeys.map((k) => [k, flat[k]])),
+        ...(hasBody && {
+          body: Object.fromEntries(Object.entries(flat).filter(([k]) => !usedKeys.has(k))),
+        }),
+      } as never);
+    },
+  });
+}
+
+${namedExports}
+`;
+}
+
+function generateMastraHelperCode(): string {
+  return `function _zodFromJsonSchema(schema: JsonSchema): z.ZodTypeAny {
+  if (schema["type"] === "string") {
+    const enums = schema["enum"] as string[] | undefined;
+    if (enums && enums.length > 0) return z.enum(enums as [string, ...string[]]);
+    return z.string();
+  }
+  if (schema["type"] === "number" || schema["type"] === "integer") return z.number();
+  if (schema["type"] === "boolean") return z.boolean();
+  if (schema["type"] === "array") {
+    return z.array(_zodFromJsonSchema((schema["items"] ?? {}) as JsonSchema));
+  }
+  if (schema["type"] === "object") {
+    const shape: Record<string, z.ZodTypeAny> = {};
+    const required = (schema["required"] ?? []) as string[];
+    for (const [key, val] of Object.entries(schema["properties"] ?? {})) {
+      const field = _zodFromJsonSchema(val as JsonSchema);
+      shape[key] = required.includes(key) ? field : field.optional();
+    }
+    return z.object(shape);
+  }
+  return z.unknown();
+}
+
+export function createMastraTool(descriptor: ToolDescriptor, sdkFn: (input: never) => Promise<unknown>) {
+  return _mastraCreateTool({
+    id: descriptor.toolName,
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: _zodFromJsonSchema(descriptor.inputSchema) as z.ZodObject<z.ZodRawShape>,
+    execute: async (inputData) => sdkFn(inputData as never),
+  });
+}
+
+export function createMastraTools(sdk: Record<string, (input: never) => Promise<unknown>>) {
+  return Object.fromEntries(
+    toolDescriptors.map((d) => [
+      d.sdkFunctionName,
+      createMastraTool(d, sdk[d.sdkFunctionName] as (input: never) => Promise<unknown>),
+    ])
+  ) as Record<string, ReturnType<typeof createMastraTool>>;
+}
+
+export function buildWrappedSdk(
+  accessToken: string,
+): Record<string, (input: never) => Promise<unknown>> {
+  const authHeaders = { Authorization: \`Bearer \${accessToken}\` };
+  const wrapped: Record<string, (input: never) => Promise<unknown>> = {};
+
+  for (const descriptor of toolDescriptors) {
+    const sdkFn = (sdk as Record<string, unknown>)[descriptor.sdkFunctionName] as
+      | ((opts: unknown) => Promise<{ data?: unknown }>)
+      | undefined;
+    if (!sdkFn) continue;
+
+    const pathKeys = descriptor.parameterGroups.path;
+    const queryKeys = descriptor.parameterGroups.query;
+    const usedKeys = new Set([...pathKeys, ...queryKeys]);
+    const hasBody =
+      descriptor.method === "post" ||
+      descriptor.method === "put" ||
+      descriptor.method === "patch";
+
+    wrapped[descriptor.sdkFunctionName] = async (input: never) => {
+      const flat = input as Record<string, unknown>;
+      const result = await sdkFn({
+        path: Object.fromEntries(pathKeys.map((k) => [k, flat[k]])),
+        query: Object.fromEntries(queryKeys.map((k) => [k, flat[k]])),
+        ...(hasBody && {
+          body: Object.fromEntries(Object.entries(flat).filter(([k]) => !usedKeys.has(k))),
+        }),
+        headers: authHeaders,
+      });
+      return result?.data ?? result;
+    };
+  }
+
+  return wrapped;
+}
+`;
+}
+
+function generateMastraSdkToolsCode(operations: Operation[]): string {
+  const namedExports = operations
+    .map((op) => `export const ${op.sdkFunctionName} = _createMastraSdkTool(toolDescriptorMap[${JSON.stringify(op.toolName)}]);`)
+    .join("\n");
+
+  return `\nfunction _createMastraSdkTool(descriptor: ToolDescriptor) {
+  const pathKeys = descriptor.parameterGroups.path;
+  const queryKeys = descriptor.parameterGroups.query;
+  const usedKeys = new Set([...pathKeys, ...queryKeys]);
+  const hasBody =
+    descriptor.method === "post" ||
+    descriptor.method === "put" ||
+    descriptor.method === "patch";
+  return _mastraCreateTool({
+    id: descriptor.toolName,
+    description: descriptor.description ?? descriptor.summary,
+    inputSchema: _zodFromJsonSchema(descriptor.inputSchema) as z.ZodObject<z.ZodRawShape>,
+    execute: async (inputData: Record<string, unknown>) => {
+      const flat = inputData;
+      return (sdk as Record<string, (opts: never) => unknown>)[descriptor.sdkFunctionName]({
+        path: Object.fromEntries(pathKeys.map((k) => [k, flat[k]])),
+        query: Object.fromEntries(queryKeys.map((k) => [k, flat[k]])),
+        ...(hasBody && {
+          body: Object.fromEntries(Object.entries(flat).filter(([k]) => !usedKeys.has(k))),
+        }),
+      } as never);
+    },
+  });
+}
+
+export const mastraTools = Object.fromEntries(
+  toolDescriptors.map((d) => [d.sdkFunctionName, _createMastraSdkTool(d)])
+) as Record<string, ReturnType<typeof _createMastraSdkTool>>;
+
+${namedExports}
+`;
+}
+
+export function generateDescriptors(
+  operations: Operation[],
+  config: ResolvedConfig
+): string {
+  const descriptors = operations.map((operation) => buildDescriptor(operation, config));
+
+  validateUniqueNames(descriptors);
 
   const descriptorEntries = descriptors
     .map((descriptor) => `  ${JSON.stringify(descriptor, null, 2).split("\n").join("\n  ")}`)
@@ -884,9 +1040,39 @@ export function generateToolDescriptorsCode(
     )
     .join("\n");
 
+  const needsAiImport = config.providers.vercelAiSdk.enabled || config.providers.vercelAiSdk.generateTools;
+  const needsMastraImport = config.providers.mastra?.enabled || config.providers.mastra?.generateTools;
+
   const providerHelpers = config.providers.vercelAiSdk.enabled
-    ? `\n${generateVercelAiSdkToolsCode(descriptors)}`
+    ? `\n${generateVercelAiSdkToolsCode()}`
     : "";
 
-  return `// AUTO-GENERATED - DO NOT EDIT\n// Generated by @recepbayraktar/openapi-agent-tools\nexport type HttpMethod = "get" | "post" | "put" | "patch" | "delete";\n\nexport type IntentType = "read" | "search" | "create" | "update" | "delete" | "workflow";\n\nexport type SafetyLevel = "safe" | "confirm" | "dangerous";\n\nexport interface JsonSchema {\n  [key: string]: unknown;\n}\n\nexport interface ParameterGroups {\n  path: string[];\n  query: string[];\n  header: string[];\n  cookie: string[];\n  body: string[];\n}\n\nexport interface ToolDescriptorMetadata {\n  intentType?: IntentType;\n  entityNouns?: string[];\n  safetyLevel?: SafetyLevel;\n  routingDescription?: string;\n}\n\nexport interface ToolDescriptor {\n  method: HttpMethod;\n  path: string;\n  operationId: string;\n  toolName: string;\n  sdkFunctionName: string;\n  summary: string;\n  description?: string;\n  tags: string[];\n  inputSchema: JsonSchema;\n  parameterGroups: ParameterGroups;\n  metadata?: ToolDescriptorMetadata;\n}\n\nexport const toolDescriptors: ToolDescriptor[] = [\n${descriptorEntries}\n];\n\nexport const toolDescriptorMap: Record<string, ToolDescriptor> = {\n${mapEntries}\n};\n${providerHelpers}\nexport type ToolDescriptorsFile = {\n  toolDescriptors: typeof toolDescriptors;\n  toolDescriptorMap: typeof toolDescriptorMap;\n};\n`;
+  const sdkToolsCode = config.providers.vercelAiSdk.generateTools
+    ? generateSdkToolsCode(operations)
+    : "";
+
+  const mastraHelperCode = config.providers.mastra?.enabled
+    ? `\n${generateMastraHelperCode()}`
+    : "";
+
+  const mastraSdkToolsCode = config.providers.mastra?.generateTools
+    ? generateMastraSdkToolsCode(operations)
+    : "";
+
+  const aiImport = needsAiImport
+    ? 'import { tool, jsonSchema } from "ai";\n\n'
+    : "";
+
+  const mastraImport = needsMastraImport
+    ? 'import { createTool as _mastraCreateTool } from "@mastra/core/tools";\nimport { z } from "zod";\n\n'
+    : "";
+
+  const sdkImport =
+    config.providers.vercelAiSdk.generateTools ||
+    config.providers.mastra?.generateTools ||
+    config.providers.mastra?.enabled
+      ? 'import * as sdk from "./sdk.gen";\n'
+      : "";
+
+  return `// AUTO-GENERATED - DO NOT EDIT\n// Generated by @recepbayraktar/openapi-agent-tools\n${aiImport}${mastraImport}${sdkImport}export type HttpMethod = "get" | "post" | "put" | "patch" | "delete";\n\nexport type IntentType = "read" | "search" | "create" | "update" | "delete" | "workflow";\n\nexport type SafetyLevel = "safe" | "confirm" | "dangerous";\n\nexport interface JsonSchema {\n  [key: string]: unknown;\n}\n\nexport interface ParamGroups {\n  path: string[];\n  query: string[];\n  header: string[];\n  cookie: string[];\n  body: string[];\n}\n\nexport interface ToolMetadata {\n  intentType?: IntentType;\n  entityNouns?: string[];\n  safetyLevel?: SafetyLevel;\n  routingDescription?: string;\n}\n\nexport interface ToolDescriptor {\n  method: HttpMethod;\n  path: string;\n  operationId: string;\n  toolName: string;\n  sdkFunctionName: string;\n  summary: string;\n  description?: string;\n  tags: string[];\n  inputSchema: JsonSchema;\n  parameterGroups: ParamGroups;\n  metadata?: ToolMetadata;\n}\n\nexport const toolDescriptors: ToolDescriptor[] = [\n${descriptorEntries}\n];\n\nexport const toolDescriptorMap: Record<string, ToolDescriptor> = {\n${mapEntries}\n};\n${providerHelpers}${sdkToolsCode}${mastraHelperCode}${mastraSdkToolsCode}\nexport type ToolRegistry = {\n  toolDescriptors: typeof toolDescriptors;\n  toolDescriptorMap: typeof toolDescriptorMap;\n};\n`;
 }
